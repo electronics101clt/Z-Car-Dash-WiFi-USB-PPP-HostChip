@@ -83,7 +83,7 @@ AT+PBLIST                               # List phonebook entries
 
 **Using minicom:**
 ```bash
-minicom -D /dev/ttyUSB0 -b 74880
+minicom -D /dev/ttyUSB0 -b 9600
 ATDT5551234                             # Dial the number
 # Modem responds: CONNECT 56000
 ```
@@ -93,7 +93,7 @@ ATDT5551234                             # Dial the number
 Create `/etc/ppp/peers/esp32-modem`:
 ```
 /dev/ttyUSB0
-74880
+9600
 crtscts
 lock
 noauth
@@ -257,6 +257,93 @@ Customize which Bluetooth devices to scan for:
 - Default: `OBD,ELM,V-LINK,IOS-`
 - Edit via web interface Settings page
 
+## Testing and Verification
+
+### Automated Modem Testing
+
+You can verify modem functionality using the included expect script:
+
+```bash
+# Install expect if not already installed
+sudo apt-get install expect
+
+# Create and run test script
+cat > /tmp/test_modem.exp << 'EOF'
+#!/usr/bin/expect -f
+set timeout 5
+spawn picocom -b 9600 -q /dev/ttyUSB0
+
+sleep 2
+
+send "AT\r"
+expect "OK"
+puts "\n=== AT command test: PASSED ==="
+
+send "ATI\r"
+expect "OK"
+puts "\n=== ATI identification: PASSED ==="
+
+send "AT+IPR?\r"
+expect "+IPR:"
+expect "OK"
+puts "\n=== AT+IPR query: PASSED ==="
+
+send "AT+WIFISTATUS\r"
+expect "AP:"
+expect "STA:"
+expect "OK"
+puts "\n=== AT+WIFISTATUS: PASSED ==="
+
+send "AT+PBLIST\r"
+expect "OK"
+puts "\n=== AT+PBLIST: PASSED ==="
+
+puts "\n=== All modem tests PASSED! ==="
+sleep 1
+exit
+EOF
+
+chmod +x /tmp/test_modem.exp
+/tmp/test_modem.exp
+```
+
+### Expected Test Results
+
+**Successful modem test output:**
+```
+=== AT command test: PASSED ===
+ESP32 WiFi Modem v1.0
+Z-Car-Dashboard
+=== ATI identification: PASSED ===
+AT+IPR?
++IPR: 9600
+=== AT+IPR query: PASSED ===
+AT+WIFISTATUS
+AP: ZS-xxxxxxxx
+STA: Disconnected
+=== AT+WIFISTATUS: PASSED ===
+AT+PBLIST
+=== AT+PBLIST: PASSED ===
+=== All modem tests PASSED! ===
+```
+
+### WiFi Connection Test
+
+Test WiFi connection and PPP mode:
+
+```bash
+# In your serial terminal (picocom, minicom, etc.)
+AT+PBADD=5551234,YourWiFiSSID,YourPassword
+AT+PBLIST
+ATDT5551234
+
+# Expected response:
+CONNECT 56000
+# (PPP negotiation starts)
+```
+
+**Note:** SSID is case-sensitive. Use exact capitalization.
+
 ## Troubleshooting
 
 ### Modem Not Responding
@@ -265,8 +352,13 @@ Customize which Bluetooth devices to scan for:
 # Check serial port
 ls -l /dev/ttyUSB*
 
-# Test with screen
-screen /dev/ttyUSB0 74880
+# Test with picocom
+picocom -b 9600 /dev/ttyUSB0
+AT
+# Should respond: OK
+
+# Or use screen
+screen /dev/ttyUSB0 9600
 AT
 # Should respond: OK
 ```
