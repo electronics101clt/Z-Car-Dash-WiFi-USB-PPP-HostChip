@@ -35,6 +35,8 @@ This project combines a full-featured car dashboard with a WiFi-to-serial modem,
 - **ELM327 Bluetooth LE adapter** (optional, for OBD-II data)
 - **Relay module** (optional, for remote start/alarm control)
 
+⚠️ **IMPORTANT: This is a LARGE application** - The compiled sketch uses **~1,282,520 bytes (97%) of program storage space** on a standard ESP32 (1,310,720 byte maximum). There is very little room for additional features. If you need to add functionality, you may need to remove existing features or optimize the code.
+
 ## Installation
 
 ### Flash Firmware
@@ -147,6 +149,8 @@ curl http://10.0.0.1/api/data           # OBD data JSON
 | `AT+PBADD=<num>,<ssid>,<pass>` | Add phonebook entry |
 | `AT+PBDEL=<number>` | Delete phonebook entry |
 | `AT+WIFISTATUS` | Show WiFi connection status |
+| `AT+IPR=<baudrate>` | Set DTE baud rate (volatile, resets on power cycle) |
+| `AT+IPR?` | Query current baud rate |
 
 ### Examples
 
@@ -155,6 +159,10 @@ AT                              → OK
 ATI                             → ESP32 WiFi Modem v1.0
                                   Z-Car-Dashboard
                                   OK
+AT+IPR?                         → +IPR: 9600
+                                  OK
+AT+IPR=115200                   → OK
+                                  (modem switches to 115200 immediately)
 AT+PBADD=5551234,HomeWiFi,secret123  → OK
 AT+PBLIST                       → 5551234 -> HomeWiFi
                                   OK
@@ -227,11 +235,18 @@ Default: `12345678`
 
 ### Serial Port Settings
 
-- **Baud rate:** 74880 (matches ESP32 ROM bootloader)
+- **Default baud rate:** 9600 (Hayes standard)
 - **Data bits:** 8
 - **Parity:** None
 - **Stop bits:** 1
 - **Flow control:** Hardware (RTS/CTS)
+
+**Baud Rate Negotiation:**
+- Modem always boots at 9600 baud (default Hayes baud rate)
+- Use `AT+IPR=<rate>` to change baud rate during session
+- Supported rates: 300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600
+- Baud rate changes are **volatile** - resets to 9600 on power cycle
+- This ensures modem is always accessible at known default rate
 
 ### OBD-II Filter
 

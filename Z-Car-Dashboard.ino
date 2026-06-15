@@ -138,6 +138,14 @@ char staSSID[32] = "";
 char staPassword[64] = "";
 bool staConnected = false;
 
+// Hayes escape sequence (+++  with guard times)
+#define ESC_GUARD_TIME 1000  // 1 second guard time in milliseconds
+#define ESC_CHARACTER '+'    // Escape character
+#define ESC_TIMES 3          // Number of escape chars needed
+unsigned long escCheckTime = 0;  // Time tracking for guard period
+byte escCounter = 0;             // Count of escape chars seen
+unsigned long lastSerialActivity = 0;  // Last time serial data received
+
 // PPP Protocol Constants
 #define PPP_FLAG     0x7E
 #define PPP_ESCAPE   0x7D
@@ -1140,10 +1148,58 @@ void modemHangup() {
     modemSend("NO CARRIER");
 }
 
+// Check for Hayes escape sequence (+++ with guard times)
+// Returns true if escape sequence detected and should return to command mode
+bool checkEscapeSequence(char ch) {
+    unsigned long now = millis();
+
+    // If character is provided, track it
+    if (ch != 0) {
+        // Check if guard time elapsed since last activity
+        if ((long)(now - lastSerialActivity) >= ESC_GUARD_TIME) {
+            // Guard time passed, reset counter
+            escCounter = 0;
+        }
+
+        lastSerialActivity = now;
+
+        // Check if this is an escape character
+        if (ch == ESC_CHARACTER) {
+            escCounter++;
+
+            // If we have all escape characters, set post-sequence guard time
+            if (escCounter >= ESC_TIMES) {
+                escCheckTime = now + ESC_GUARD_TIME;
+            }
+        } else {
+            // Non-escape character resets everything
+            escCounter = 0;
+            escCheckTime = 0;
+        }
+
+        return false;  // Not yet complete
+    }
+
+    // Called with null character - check if sequence is complete
+    if (escCounter == ESC_TIMES && escCheckTime > 0) {
+        // Check if post-sequence guard time has elapsed
+        if ((long)(now - escCheckTime) >= 0) {
+            // Escape sequence complete!
+            escCounter = 0;
+            escCheckTime = 0;
+            return true;
+        }
+    }
+
+    return false;
+}
+
 // Process AT command
 void processATCommand(String cmd) {
-    cmd.toUpperCase();
     cmd.trim();
+    // Create uppercase version for command matching, preserve original for parameters
+    String cmdUpper = cmd;
+    cmdUpper.toUpperCase();
 
     // Echo command if enabled
     if (modemEcho && cmd.length() > 0) {
@@ -1151,13 +1207,13 @@ void processATCommand(String cmd) {
     }
 
     // Handle empty AT
-    if (cmd == "AT") {
+    if (cmdUpper == "AT") {
         modemSend("OK");
         return;
     }
 
     // ATZ - Reset modem
-    if (cmd == "ATZ") {
+    if (cmdUpper == "ATZ") {
         modemHangup();
         modemEcho = true;
         modemVerbose = true;
@@ -1166,21 +1222,21 @@ void processATCommand(String cmd) {
     }
 
     // ATE - Echo control
-    if (cmd.startsWith("ATE")) {
-        modemEcho = (cmd.charAt(3) == '1');
+    if (cmdUpper.startsWith("ATE")) {
+        modemEcho = (cmdUpper.charAt(3) == '1');
         modemSend("OK");
         return;
     }
 
     // ATV - Verbose control
-    if (cmd.startsWith("ATV")) {
-        modemVerbose = (cmd.charAt(3) == '1');
+    if (cmdUpper.startsWith("ATV")) {
+        modemVerbose = (cmdUpper.charAt(3) == '1');
         modemSend("OK");
         return;
     }
 
     // ATI - Identification
-    if (cmd.startsWith("ATI")) {
+    if (cmdUpper.startsWith("ATI")) {
         Serial.println("ESP32 WiFi Modem v1.0");
         Serial.println("Z-Car-Dashboard");
         modemSend("OK");
@@ -1188,14 +1244,14 @@ void processATCommand(String cmd) {
     }
 
     // ATH - Hangup
-    if (cmd.startsWith("ATH")) {
+    if (cmdUpper.startsWith("ATH")) {
         modemHangup();
         modemSend("OK");
         return;
     }
 
     // ATDT - Dial (tone)
-    if (cmd.startsWith("ATDT")) {
+    if (cmdUpper.startsWith("ATDT")) {
         String number = cmd.substring(4);
         number.trim();
         if (number.length() > 0) {
@@ -1207,7 +1263,7 @@ void processATCommand(String cmd) {
     }
 
     // ATDP - Dial (pulse) - treat same as tone
-    if (cmd.startsWith("ATDP")) {
+    if (cmdUpper.startsWith("ATDP")) {
         String number = cmd.substring(4);
         number.trim();
         if (number.length() > 0) {
@@ -1219,7 +1275,7 @@ void processATCommand(String cmd) {
     }
 
     // AT+PBLIST - List phonebook
-    if (cmd == "AT+PBLIST") {
+    if (cmdUpper == "AT+PBLIST") {
         for (int i = 0; i < phonebookCount; i++) {
             Serial.print(phonebook[i].number);
             Serial.print(" -> ");
@@ -1230,7 +1286,7 @@ void processATCommand(String cmd) {
     }
 
     // AT+PBADD=number,ssid,password - Add phonebook entry
-    if (cmd.startsWith("AT+PBADD=")) {
+    if (cmdUpper.startsWith("AT+PBADD=")) {
         String params = cmd.substring(9);
         int comma1 = params.indexOf(',');
         int comma2 = params.indexOf(',', comma1 + 1);
@@ -1249,7 +1305,7 @@ void processATCommand(String cmd) {
     }
 
     // AT+PBDEL=number - Delete phonebook entry
-    if (cmd.startsWith("AT+PBDEL=")) {
+    if (cmdUpper.startsWith("AT+PBDEL=")) {
         String number = cmd.substring(9);
         int idx = findPhonebookEntry(number);
         if (idx >= 0) {
@@ -1267,7 +1323,7 @@ void processATCommand(String cmd) {
     }
 
     // AT+WIFISTATUS - WiFi status
-    if (cmd == "AT+WIFISTATUS") {
+    if (cmdUpper == "AT+WIFISTATUS") {
         Serial.print("AP: ");
         Serial.println(ssid);
         Serial.print("STA: ");
@@ -1280,6 +1336,45 @@ void processATCommand(String cmd) {
         } else {
             Serial.println("Disconnected");
         }
+        modemSend("OK");
+        return;
+    }
+
+    // AT+IPR=<baudrate> - Set DTE baud rate (volatile, resets on power cycle)
+    if (cmdUpper.startsWith("AT+IPR=")) {
+        String rateStr = cmd.substring(7);
+        rateStr.trim();
+
+        if (rateStr.length() > 0) {
+            unsigned long newRate = rateStr.toInt();
+
+            // Validate baud rate (common rates)
+            if (newRate == 300 || newRate == 1200 || newRate == 2400 ||
+                newRate == 4800 || newRate == 9600 || newRate == 19200 ||
+                newRate == 38400 || newRate == 57600 || newRate == 115200 ||
+                newRate == 230400 || newRate == 460800 || newRate == 921600) {
+
+                // Send OK at current baud rate
+                modemSend("OK");
+                Serial.flush();  // Wait for transmission to complete
+                delay(50);       // Extra safety delay
+
+                // Change baud rate
+                Serial.end();
+                Serial.begin(newRate);
+
+                return;
+            }
+        }
+
+        modemSend("ERROR");
+        return;
+    }
+
+    // AT+IPR? - Query current baud rate
+    if (cmdUpper == "AT+IPR?") {
+        Serial.print("+IPR: ");
+        Serial.println(Serial.baudRate());
         modemSend("OK");
         return;
     }
@@ -1686,6 +1781,14 @@ void ppp_serialIncoming() {
     while (Serial.available() > 0) {
         uint8_t c = Serial.read();
 
+        // Check for Hayes escape sequence (+++)
+        if (checkEscapeSequence((char)c)) {
+            // Escape sequence detected - return to command mode
+            modemHangup();
+            modemSend("OK");  // Escape successful
+            return;
+        }
+
         if (pppBuf == NULL) {
             pppBuf = (uint8_t *)malloc(4096);
             if (pppBuf == NULL) return;
@@ -1714,7 +1817,7 @@ void ppp_serialIncoming() {
 }
 
 void setup() {
-    Serial.begin(74880);  // Match ROM bootloader - makes boot messages readable for filtering
+    Serial.begin(9600);  // Standard baud rate for modem compatibility
     delay(1000);
 
 
@@ -1834,6 +1937,15 @@ void sendHTMLChunked(const char* htmlStr) {
 
 void loop() {
     server.handleClient();
+
+    // Check for escape sequence completion when in online mode (even when no data)
+    if (modemState == MODEM_ONLINE && !Serial.available()) {
+        if (checkEscapeSequence(0)) {
+            // Escape sequence detected - return to command mode
+            modemHangup();
+            modemSend("OK");  // Escape successful
+        }
+    }
 
     // Serial command parser
     if (Serial.available()) {
