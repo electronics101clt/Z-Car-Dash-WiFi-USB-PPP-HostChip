@@ -35,7 +35,7 @@ This project combines a full-featured car dashboard with a WiFi-to-serial modem,
 - **ELM327 Bluetooth LE adapter** (optional, for OBD-II data)
 - **Relay module** (optional, for remote start/alarm control)
 
-⚠️ **IMPORTANT: This is a LARGE application** - The compiled sketch uses **~1,282,520 bytes (97%) of program storage space** on a standard ESP32 (1,310,720 byte maximum). There is very little room for additional features. If you need to add functionality, you may need to remove existing features or optimize the code.
+⚠️ **IMPORTANT: This is a LARGE application** - The compiled sketch uses **~1,282,536 bytes (40%) of program storage space** with the **Huge APP** partition scheme (3,145,728 byte maximum). You must use the "Huge APP (3MB No OTA/1MB SPIFFS)" partition scheme when flashing, otherwise the default partition (1.3MB) will not have enough space and compilation will fail or the app will be severely limited.
 
 ## Installation
 
@@ -46,14 +46,17 @@ This project combines a full-featured car dashboard with a WiFi-to-serial modem,
 2. Install NimBLE-Arduino library: `Sketch → Include Library → Manage Libraries → search "NimBLE-Arduino"`
 3. Open `Z-Car-Dashboard.ino`
 4. Select `Tools → Board → ESP32 Dev Module`
-5. Select correct COM port
-6. Click Upload
+5. **CRITICAL:** Select `Tools → Partition Scheme → Huge APP (3MB No OTA/1MB SPIFFS)`
+6. Select correct COM port
+7. Click Upload
 
 **Using arduino-cli:**
 ```bash
-arduino-cli compile --fqbn esp32:esp32:esp32 Z-Car-Dashboard.ino
-arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32 Z-Car-Dashboard.ino
+arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app Z-Car-Dashboard.ino
+arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32:PartitionScheme=huge_app Z-Car-Dashboard.ino
 ```
+
+**Note:** The `:PartitionScheme=huge_app` suffix is required to use the 3MB app partition instead of the default 1.3MB.
 
 ## Usage
 
